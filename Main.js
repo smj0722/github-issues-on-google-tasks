@@ -6,7 +6,6 @@ async function generateTasks() {
   Logger.log('Starting Calendar Hub pipeline sync');
 
   const pipelineIssues = fetchPipelineIssues();
-  const pipelineNumbers = pipelineIssues.map(issue => issue.number);
   let changed = 0;
   let previousTaskId = null;
 
@@ -33,8 +32,6 @@ async function generateTasks() {
     moveTask(taskId, previousTaskId);
     previousTaskId = taskId;
   }
-
-  changed += reconcileIssuesRemovedFromPipeline(pipelineNumbers);
 
   Logger.log('Finished Calendar Hub pipeline sync');
   return changed;
@@ -82,36 +79,4 @@ function moveTask(taskId, previousTaskId) {
     Logger.log('Failed to reorder task "%s": %s', taskId, err.message);
     throw err;
   }
-}
-
-function reconcileIssuesRemovedFromPipeline(pipelineNumbers) {
-  const pipelineSet = {};
-  pipelineNumbers.forEach(number => pipelineSet[number] = true);
-  const trackedIssues = getAllTrackedIssues();
-  let changed = 0;
-
-  for (let i = 0; i < trackedIssues.length; i++) {
-    const tracked = trackedIssues[i];
-    if (pipelineSet[tracked.number]) continue;
-
-    const issue = fetchGitHubIssue(tracked.number);
-
-    if (issue.state == 'closed') {
-      if (tracked.state != 'closed' || tracked.updatedAt != issue.updated_at || tracked.title != issue.title) {
-        updateTask(buildTask(issue), tracked.taskId);
-        updateIssueOnSpreadsheet(issue);
-        changed++;
-      }
-      continue;
-    }
-
-    // An open issue removed from #85 is no longer part of the active work pipeline.
-    // Remove only the Task created by this script; never touch the GitHub issue.
-    Tasks.Tasks.remove(TASK_LIST_ID, tracked.taskId);
-    deleteIssueFromSpreadsheet(tracked.number);
-    Logger.log('Removed issue #%s from Google Tasks because it is no longer in pipeline #85.', tracked.number);
-    changed++;
-  }
-
-  return changed;
 }
