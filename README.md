@@ -1,82 +1,75 @@
-# GitHub Issues on Google Tasks
+# Calendar Hub Pipeline → Google Tasks
 
-This is the source code for a Google Script that retrieves your GitHub issues and create corresponding tasks for them on Google Tasks. This allows you to see your Issues on the Google Tasks app/website or plan when to work on them on your Google Calendar.
+Forked from `thiagobarbosa/github-issues-on-google-tasks` and customized for Calendar Hub.
 
-![Google Issues on Google Tasks](assets/image2.gif)
+## Purpose
 
-## Features
+This Apps Script reads **issue #85** from `smj0722/Calendar-Hub`, extracts only the `## 현재 작업순서` section, fetches each referenced GitHub issue, and mirrors the list to a dedicated Google Tasks list.
 
-- Fetches your Issues using the GitHub API and creates a new task on Google Tasks for each new GitHub Issue.
-- Automatically syncs tasks with your GitHub issues to keep them up to date. When a issue is closed the task is automatically set as `completed`. The task also gets updated if you change its respected Github Issue title.
-- You can schedule the frequence for the task updates for every hour, every 4 hours or once a day.
+GitHub issue **#85 is the Source of Truth**. Google Tasks is a read-friendly working view.
+
+## Sync behavior
+
+- Reads issue numbers from `#85 > ## 현재 작업순서` in top-to-bottom order.
+- Creates Google Tasks as `#issue-number issue-title`.
+- Stores the GitHub issue URL in the task notes.
+- Updates an existing task when the GitHub issue title/state changes.
+- Reorders active Google Tasks to match the order in #85 on every sync.
+- If an issue that is still listed in #85 is closed, its Google Task is marked completed.
+- The sync is intentionally one-way: changing Google Tasks does not edit GitHub.
+- No bulk "Delete all tasks" menu is provided.
+
+> Important: remove completed issues from #85 only after a sync has had a chance to observe the closed state if you want the corresponding Google Task to be marked completed first.
 
 ## Requirements
 
-Before using this app, make sure you have the following:
-
-- A GitHub token with access to the repository containing the Issues you want to sync. The token needs to have the roles `repo` and `user`
-- A Google account.
+- Google account
+- Google Tasks advanced service enabled in Apps Script
+- GitHub token that can read `smj0722/Calendar-Hub`
+- A dedicated Google Tasks list, recommended name: `Calendar Hub`
 
 ## Setup
 
-1. Make a copy of [this spreadsheet](https://docs.google.com/spreadsheets/d/1tfjtEV6lP3Z_Wr4f8_-ruMKJfYWW3JbZxfQydibudUE/edit#gid=0).
-This sheet will act like a simplified "database" for you to visualized all the tasks that were created based on your Github Issues, and your script will be connected to it.
+The original project uses a Google Sheet as a lightweight mapping database between GitHub issue numbers and Google Task IDs.
 
-![Google Sheet example](assets/image3.png)
-*Example of a Google Sheet with the Google Tasks created based on your Github Issues.*
+1. Make a copy of the original project's spreadsheet, or use an equivalent spreadsheet bound to this Apps Script.
+2. Open **Extensions → Apps Script**.
+3. Replace the script files with the files from this fork/branch.
+4. Enable the **Google Tasks API advanced service** for the Apps Script project.
+5. Reload the spreadsheet and open the `📋 Calendar Hub Tasks` menu.
+6. Choose `Setup → Create setup` and enter:
+   - GitHub key
+   - GitHub owner: `smj0722`
+   - GitHub repository: `Calendar-Hub`
+   - Google Tasks list name, e.g. `Calendar Hub`
+7. Run `🔄 Sync pipeline now` once and verify the result in Google Tasks.
+8. If the result is correct, choose `🗓 Schedule sync → Every hour`.
 
-2. Inside your copied spreadsheet, you will see a custom menu called `🤖 Github Issues` like this:
+## Pipeline format
 
-   ![Menu](assets/image1.png)
+Issue #85 must keep this heading:
 
-It might take up to a minute for this menu to appear. When it does, start by clickin on the menu `Setup -> Create setup`. You will be prompted to input the following 5 environment variables for the script to work:
+```text
+## 현재 작업순서
+```
 
-- Your Github key
-- Your Github username
-- The Github organization name for your repository (or your own Github username if you own the repository)
-- Your repository name
-- The name of your task list on Google Tasks
-  
-If you skeptical about inputing these information on a UI, you can do it directly via code using the instructions in the Appendix.
+Each active item should start with an issue number, for example:
 
-## Usage
+```text
+#65 이전 접수 상세 UI 개선
+#82 상단 앱 버전 표시
+#75 일반 일정 생성·편집 UI 및 KICQ 화면 분리
+```
 
-1. Open your copied Google Sheet.
+The script reads only that section, so development history in #16 does not affect synchronization.
 
-2. In your copied sheet, the menu `🤖 Github Issues` will show you those 4 options:
+## Safety
 
-   1. `Setup`
-   Can be used to create or change the environment variables described on the `Setup` section
-   2. `Generate new tasks`
-   After the confirmation, the script will fetch all your Github opened Issues and create a Google Task for each one of them.
-   3. `Schedule tasks`
-   This create a scheduler to automatically fetch your new or updated Issues from Github and create/update their respective tasks. You can create a scheduler to run every hour, every 4 hours or once a day. You can also delete all existing schedulers from this menu.
-   4. `Delete all tasks`
-   In case you need a fresh starts, this removes all the tasks from your list. This only deletes the Google Tasks for the list you defined on the `Setup` menu (including the ones **not** created by the script). It doesn't delete or change anything on the Github side.
-
-   You will also see a menu option to open this Github repository.
-
-## Limitations
-
-- You can only fetch up to 100 Github Issues per call. In case you have more than that, that's your cue to clean up your old issues 😂
-
-## Appendix
-
-If you want to set the environment variables yourself instead of using the UI menu, you can do it following these steps:
-
-1. Open your copied spreadsheet and click on `Extension -> Apps Script`
-2. On the left menu, click on `Project Settings`
-3. Under `Script Properties`, create the following variables:
-   1. `githubKey` with your Github token.
-   2. `githubOrganization` with the organization name of your repository.
-   3. `githubRepository` with the name of your repository.
-   4. `githubUsername` with your Github username.
-   5. `taskListId` with the ID of your task list on Google Tasks; if you need help finding this ID you can run the method `getAllTaskLists` from the file `Utils.js`
-
-## Contributing
-
-Contributions are welcome! If you have any suggestions, bug reports, or feature requests, please open an issue or submit a pull request.
+- GitHub is never modified by this script.
+- Google Tasks synchronization is limited to tasks tracked in the spreadsheet mapping.
+- Bulk deletion of an entire Google Tasks list has been removed from the menu.
+- Use a dedicated Google Tasks list for Calendar Hub.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+MIT. Original project by Thiago Barbosa.

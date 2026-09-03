@@ -1,91 +1,82 @@
 /**
- * Project: github-issues-on-google-tasks
- * File: Main.js
- * Author: Thiago Barbosa 
+ * Calendar Hub pipeline -> Google Tasks sync
  */
 
-async function generateTasks(issueStatus = "open", issueSortDirection = "asc") {
-  Logger.log("Starting task generation for Github Issues")
-  
-  let githubIssues = fetchGitHubIssues(issueStatus, issueSortDirection)
-  let tasks = []
+async function generateTasks() {
+  Logger.log('Starting Calendar Hub pipeline sync');
 
-  for (let i in githubIssues) {
-    let task = {
-      title: githubIssues[i].title,
-      notes: githubIssues[i].html_url,
-      status: githubIssues[i].state == "closed" ? "completed" : "open"
-    };
+  const pipelineIssues = fetchPipelineIssues();
+  let changed = 0;
+  let previousTaskId = null;
 
-    let taskLastUpdate = getIssueLastUpdateFromSpreadsheet(githubIssues[i]);
+  for (let i = 0; i < pipelineIssues.length; i++) {
+    const issue = pipelineIssues[i];
+    const task = buildTask(issue);
+    const tracked = getTrackedIssue(issue.number);
+    let taskId;
 
-    // create new task for opened issue
-    if(taskLastUpdate == null && githubIssues[i].state == "open") {
-      let taskId = await addTask(task)
-      writeIssueOnSpreadsheet(githubIssues[i], taskId)
-      tasks.push(task)
+    if (tracked == null) {
+      taskId = await addTask(task);
+      if (!taskId) throw new Error(`Failed to create Google Task for issue #${issue.number}`);
+      writeIssueOnSpreadsheet(issue, taskId);
+      changed++;
+    } else {
+      taskId = tracked.taskId;
+      if (tracked.updatedAt != issue.updated_at || tracked.state != issue.state || tracked.title != issue.title) {
+        updateTask(task, taskId);
+        updateIssueOnSpreadsheet(issue);
+        changed++;
+      }
     }
 
-    // updates existing task for modified issue
-    if(taskLastUpdate != null && taskLastUpdate != githubIssues[i].updated_at){
-      let taskId = updateIssueOnSpreadsheet(githubIssues[i])
-      updateTask(task, taskId)
-      tasks.push(task)
-    }
+    moveTask(taskId, previousTaskId);
+    previousTaskId = taskId;
   }
-  Logger.log("Finished task generation for Github Issues");
-  return tasks.length;
+
+  Logger.log('Finished Calendar Hub pipeline sync');
+  return changed;
 }
 
-/**
- * Adds a task to a tasklist.
- * @param {string} taskListId The tasklist to add to.
- * @see https://developers.google.com/tasks/reference/rest/v1/tasks/insert
- */
+function buildTask(issue) {
+  return {
+    title: `#${issue.number} ${issue.title}`,
+    notes: issue.html_url,
+    status: issue.state == 'closed' ? 'completed' : 'needsAction'
+  };
+}
+
 async function addTask(task) {
   try {
-      const newTask = Tasks.Tasks.insert(task, TASK_LIST_ID);
-      // Print the Task ID of created task.
-      Logger.log('Task "%s": "%s" was created.', newTask.id, newTask.title);
-      return newTask.id
-    } catch (err) {
-    // TODO (developer) - Handle exception from Tasks.insert() of Task API
-    Logger.log('Failed with an error %s', err.message);
+    const newTask = Tasks.Tasks.insert(task, TASK_LIST_ID);
+    Logger.log('Task "%s": "%s" was created.', newTask.id, newTask.title);
+    return newTask.id;
+  } catch (err) {
+    Logger.log('Failed to create task: %s', err.message);
+    throw err;
   }
 }
 
-function updateTask(task, taskId){
-  // for some reason the taskId needs to be in the payload when updating a task, even if the function asks for the id as a parameter
-  const newTask = {
+function updateTask(task, taskId) {
+  const updatedTask = {
     id: taskId,
     title: task.title,
     notes: task.notes,
     status: task.status
-  }
-  Tasks.Tasks.update(newTask, TASK_LIST_ID, taskId);
-  Logger.log('Task "%s": "%s" was updated.', newTask.id, newTask.title);
-}  
+  };
 
-async function deleteAllTasks() {
+  Tasks.Tasks.update(updatedTask, TASK_LIST_ID, taskId);
+  Logger.log('Task "%s": "%s" was updated.', taskId, task.title);
+}
+
+function moveTask(taskId, previousTaskId) {
   try {
-    // List the task items of specified tasklist using taskList id.
-    const tasks = Tasks.Tasks.list(TASK_LIST_ID);
-    // If tasks are available then print all task of given tasklists.
-    if (!tasks.items) {
-      Logger.log('No tasks found.');
-      return;
+    if (previousTaskId == null) {
+      Tasks.Tasks.move(TASK_LIST_ID, taskId);
+    } else {
+      Tasks.Tasks.move(TASK_LIST_ID, taskId, { previous: previousTaskId });
     }
-    // Print the task title and task id of specified tasklist.
-    for (let i = 0; i < tasks.items.length; i++) {
-      const task = tasks.items[i];
-      Logger.log('Deleting task ID "%s": "%s".', task.id, task.title);
-      deleteTaskFromSpreadsheet(task)
-       Tasks.Tasks.remove(TASK_LIST_ID, task["id"])
-    }
-    
-    return tasks.items;
   } catch (err) {
-    // TODO (developer) - Handle exception from Task API
-    Logger.log('Failed with an error %s', err.message);
+    Logger.log('Failed to reorder task "%s": %s', taskId, err.message);
+    throw err;
   }
 }

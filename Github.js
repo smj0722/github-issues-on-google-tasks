@@ -1,37 +1,75 @@
 /**
- * Project: github-issues-on-google-tasks
- * File: Github.js
- * Author: Thiago Barbosa 
+ * Calendar Hub pipeline -> Google Tasks sync
  */
 
-function fetchGitHubIssues(issueStatus = "open", issueSortDirection = "asc") {
-  Logger.log("Fetching Github Issues with status '" +issueStatus +"'")
-  let issuesList = [];
-  
-  var githubApiEndpoint = `https://api.github.com/repos/${GITHUB_ORGANIZATION}/${GITHUB_REPOSITORY}/issues?assignee=${GITHUB_NAME}&state=${issueStatus}&&sort=updated&direction=${issueSortDirection}&per_page=100`;
+const PIPELINE_ISSUE_NUMBER = 85;
 
-  var options = {
-    'method' : 'get',
-    'headers': {
-      'Authorization': 'token ' + GITHUB_TOKEN,
-      'Accept': 'application/vnd.github.v3+json'
+function githubRequest(path) {
+  const endpoint = `https://api.github.com/repos/${GITHUB_ORGANIZATION}/${GITHUB_REPOSITORY}${path}`;
+  const response = UrlFetchApp.fetch(endpoint, {
+    method: 'get',
+    headers: {
+      Authorization: 'Bearer ' + GITHUB_TOKEN,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
     },
-    'muteHttpExceptions': true
-  };
+    muteHttpExceptions: true
+  });
 
-  var response = UrlFetchApp.fetch(githubApiEndpoint, options);
-  var issues = JSON.parse(response.getContentText());
-
-  for (let i = 0; i < issues.length; i++){
-    let issue = {};
-    issue.number = issues[i]["number"];
-    issue.title = issues[i]["title"];
-    issue.html_url = issues[i]["html_url"];
-    issue.updated_at = issues[i]["updated_at"];
-    issue.state = issues[i]["state"];
-    issuesList.push(issue);
+  const status = response.getResponseCode();
+  if (status < 200 || status >= 300) {
+    throw new Error(`GitHub API ${status}: ${response.getContentText()}`);
   }
 
-   return issuesList;
-  
+  return JSON.parse(response.getContentText());
+}
+
+function fetchGitHubIssue(issueNumber) {
+  const issue = githubRequest(`/issues/${issueNumber}`);
+  return {
+    number: issue.number,
+    title: issue.title,
+    html_url: issue.html_url,
+    updated_at: issue.updated_at,
+    state: issue.state
+  };
+}
+
+function extractPipelineIssueNumbers(body) {
+  const heading = '## 현재 작업순서';
+  const start = body.indexOf(heading);
+  if (start === -1) {
+    throw new Error(`Pipeline issue #${PIPELINE_ISSUE_NUMBER} is missing '${heading}'.`);
+  }
+
+  const sectionStart = start + heading.length;
+  const rest = body.slice(sectionStart);
+  const nextHeading = rest.search(/\n##\s+/);
+  const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+
+  const issueNumbers = [];
+  const seen = {};
+  const regex = /^\s*(?:[-*]\s*)?#(\d+)\b/gm;
+  let match;
+
+  while ((match = regex.exec(section)) !== null) {
+    const issueNumber = Number(match[1]);
+    if (!seen[issueNumber]) {
+      seen[issueNumber] = true;
+      issueNumbers.push(issueNumber);
+    }
+  }
+
+  if (issueNumbers.length === 0) {
+    throw new Error(`No issue numbers found in pipeline issue #${PIPELINE_ISSUE_NUMBER}.`);
+  }
+
+  return issueNumbers;
+}
+
+function fetchPipelineIssues() {
+  Logger.log(`Fetching Calendar Hub pipeline from issue #${PIPELINE_ISSUE_NUMBER}`);
+  const pipelineIssue = githubRequest(`/issues/${PIPELINE_ISSUE_NUMBER}`);
+  const issueNumbers = extractPipelineIssueNumbers(pipelineIssue.body || '');
+  return issueNumbers.map(fetchGitHubIssue);
 }
