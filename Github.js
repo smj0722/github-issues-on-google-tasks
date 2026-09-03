@@ -2,6 +2,8 @@
  * Calendar Hub pipeline -> Google Tasks sync
  */
 
+const PIPELINE_ISSUE_NUMBER = 85;
+
 function githubRequest(path) {
   const endpoint = `https://api.github.com/repos/${GITHUB_ORGANIZATION}/${GITHUB_REPOSITORY}${path}`;
   const response = UrlFetchApp.fetch(endpoint, {
@@ -69,6 +71,5 @@ function fetchPipelineIssues() {
   Logger.log(`Fetching Calendar Hub pipeline from issue #${PIPELINE_ISSUE_NUMBER}`);
   const pipelineIssue = githubRequest(`/issues/${PIPELINE_ISSUE_NUMBER}`);
   const issueNumbers = extractPipelineIssueNumbers(pipelineIssue.body || '');
-
   return issueNumbers.map(fetchGitHubIssue);
 }
